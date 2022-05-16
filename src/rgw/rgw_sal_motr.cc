@@ -1256,8 +1256,41 @@ MotrObject::~MotrObject() {
 
 int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, Attrs* setattrs, Attrs* delattrs, optional_yield y, rgw_obj* target_obj)
 {
-  // TODO: implement
-  ldpp_dout(dpp, 20) <<__func__<< ": MotrObject::set_obj_attrs()" << dendl;
+  if (this->category == RGWObjCategory::MultiMeta)
+    return 0;
+
+  string bname, key;
+  if (target_obj) {
+    bname = get_bucket_name(target_obj->bucket.tenant, target_obj->bucket.name);
+    key   = target_obj->key.to_str();
+  } else {
+    bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
+    key   = this->get_key().to_str();
+  }
+  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): "
+                    << bname << "/" << key << dendl;
+
+  // Encode object's metadata (those stored in rgw_bucket_dir_entry).
+  bufferlist bl;
+  rgw_bucket_dir_entry ent;
+  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): " << "Get the bucket dir entry" << dendl;
+  int rc = this->get_bucket_dir_ent(dpp, ent);
+  if (rc < 0) {
+    return rc;
+  }
+  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): " << "Got the bucket dir entry" << dendl;
+  ent.encode(bl);
+  encode(attrs, bl);
+
+  string bucket_index_iname = "motr.rgw.bucket.index." + bname;
+  rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, bl);
+  if (rc < 0) {
+    ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. rc=" << rc << dendl;
+    return rc;
+  }
+  // Put into cache.
+  this->store->get_obj_meta_cache()->put(dpp, key, bl);
+
   return 0;
 }
 
