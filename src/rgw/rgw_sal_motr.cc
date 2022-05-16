@@ -1270,26 +1270,36 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): "
                     << bname << "/" << key << dendl;
 
-  // Encode object's metadata (those stored in rgw_bucket_dir_entry).
-  bufferlist bl;
-  rgw_bucket_dir_entry ent;
-  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): " << "Get the bucket dir entry" << dendl;
-  int rc = this->get_bucket_dir_ent(dpp, ent);
-  if (rc < 0) {
-    return rc;
+  // Get object's metadata (those stored in rgw_bucket_dir_entry).
+  bufferlist bl, update_bl;
+  if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
+    // Cache misses.
+    string bucket_index_iname = "motr.rgw.bucket.index." + bname;
+    int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
+    if (rc < 0) {
+      ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. " << dendl;
+      return rc;
+    }
   }
-  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): " << "Got the bucket dir entry" << dendl;
-  ent.encode(bl);
-  encode(attrs, bl);
+
+  rgw_bucket_dir_entry ent;
+  bufferlist& blr = bl;
+  auto iter = blr.cbegin();
+  ent.decode(iter);
+
+  ent.meta.mtime = ceph::real_clock::now();
+
+  ent.encode(update_bl);
+  encode(attrs, update_bl);
 
   string bucket_index_iname = "motr.rgw.bucket.index." + bname;
-  rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, bl);
+  int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, update_bl);
   if (rc < 0) {
     ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. rc=" << rc << dendl;
     return rc;
   }
   // Put into cache.
-  this->store->get_obj_meta_cache()->put(dpp, key, bl);
+  this->store->get_obj_meta_cache()->put(dpp, key, update_bl);
 
   return 0;
 }
