@@ -18,6 +18,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <chrono>
 
 extern "C" {
 #pragma clang diagnostic push
@@ -62,9 +63,44 @@ static std::string motr_global_indices[] = {
   RGW_IAM_MOTR_EMAIL_KEY
 };
 
+// version-id(31 byte = base62 timstamp(8-byte) + UUID(23 byte)
+#define TS_LEN 8
+#define UUID_LEN 23
+
 static unsigned roundup(unsigned x, unsigned by)
 {
   return ((x - 1) / by + 1) * by;
+}
+
+std::string base62_encode(uint64_t value, size_t pad)
+{
+  // Integer to Base62 encoding table. Characters are sorted in
+  // lexicographical order, which makes the encoded result
+  // also sortable in the same way as the integer source.
+  constexpr std::array<char, 62> base62_chars{
+      // 0-9
+      '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+      // A-Z
+      'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+      'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+      // a-z
+      'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+      'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
+
+  std::string ret;
+  ret.reserve(TS_LEN);
+  if (value == 0) {
+    ret = base62_chars[0];
+  }
+
+  while (value > 0) {
+    ret += base62_chars[value % base62_chars.size()];
+    value /= base62_chars.size();
+  }
+  reverse(ret.begin(), ret.end());
+  if (ret.size() < pad) ret.insert(0, pad - ret.size(), base62_chars[0]);
+
+  return ret;
 }
 
 void MotrMetaCache::invalid(const DoutPrefixProvider *dpp,
@@ -1396,11 +1432,22 @@ bool MotrObject::is_expired() {
 // Taken from rgw_rados.cc
 void MotrObject::gen_rand_obj_instance_name()
 {
-  enum {OBJ_INSTANCE_LEN = 32};
-  char buf[OBJ_INSTANCE_LEN + 1];
-
-  gen_rand_alphanumeric_no_underscore(store->ctx(), buf, OBJ_INSTANCE_LEN);
-  key.set_instance(buf);
+  // Creating version-id based on timestamp value
+  // to list/store object versions in lexicographically sorted order.
+  char buf[UUID_LEN + 1];
+  std::string version_id;
+  //TODO: Handle null version object case in PutObj operation.
+  // As the version ID timestamp is encoded in Base62, the maximum value
+  // for 8-characters is 62^8 - 1. This is the maximum time interval in ms.
+  constexpr uint64_t max_ts_count = 218340105584895;
+  using UnsignedMillis = std::chrono::duration<uint64_t, std::milli>;
+  const auto ms_since_epoch = std::chrono::time_point_cast<UnsignedMillis>(
+                              std::chrono::system_clock::now()).time_since_epoch().count();
+  uint64_t cur_time = max_ts_count - ms_since_epoch;
+  auto version_ts = base62_encode(cur_time, TS_LEN);
+  gen_rand_alphanumeric_no_underscore(store->ctx(), buf, UUID_LEN+1);
+  version_id = version_ts + buf;
+  key.set_instance(version_id);
 }
 
 int MotrObject::omap_get_vals(const DoutPrefixProvider *dpp, const std::string& marker, uint64_t count,
@@ -1939,25 +1986,42 @@ int MotrObject::write_mobj(const DoutPrefixProvider *dpp, bufferlist&& in_buffer
     return 0;
 
   processed_bytes += left;
+  int64_t available_data = 0;
+  if (io_ctxt.accumulated_buffer_list.size() > 0) {
+    // We are in data accumulation mode
+    available_data = io_ctxt.total_bufer_sz;
+  }
 
   bs = this->get_optimal_bs(left);
   ldpp_dout(dpp, 20) <<__func__<< ": left=" << left << " bs=" << bs << dendl;
-  if (left < bs) {
+  if ((left + available_data) < bs) {
     // Determine if there are any further chunks/bytes from socket to be processed
     int64_t remaining_bytes = expected_obj_size - processed_bytes;
     if (remaining_bytes > 0) {
+      if (io_ctxt.accumulated_buffer_list.size() == 0) {
+        // Save offset
+        io_ctxt.start_offset = offset;
+      }
       // Append current buffer to the list of accumulated buffers
       ldpp_dout(dpp, 20) <<__func__<< " More data (" <<  remaining_bytes << " bytes) in-flight. Accumulating buffer..." << dendl;
       io_ctxt.accumulated_buffer_list.push_back(std::move(data));
-      if (io_ctxt.start_offset == 0)
-        io_ctxt.start_offset = offset;
       io_ctxt.total_bufer_sz += left;
       return 0;
     } else {
-      // Append last buffer
+      // This is last IO. Check if we have previously accumulated buffers.
+      // If not, simply use in_buffer/data
+      if (io_ctxt.accumulated_buffer_list.size() > 0) {
+        // Append last buffer
+        io_ctxt.accumulated_buffer_list.push_back(std::move(data));
+        io_ctxt.total_bufer_sz += left;
+      }
+    }
+  } else if ((left + available_data) == bs)  {
+    // Ready to write data to Motr. Add it to accumulated buffer
+    if (io_ctxt.accumulated_buffer_list.size() > 0) {
       io_ctxt.accumulated_buffer_list.push_back(std::move(data));
       io_ctxt.total_bufer_sz += left;
-    }
+    } // else, simply use in_buffer
   }
 
   rc = m0_bufvec_empty_alloc(&buf, 1) ?:
@@ -1994,7 +2058,7 @@ int MotrObject::write_mobj(const DoutPrefixProvider *dpp, bufferlist&& in_buffer
       unsigned unit_sz = m0_obj_layout_id_to_unit_size(lid);
 
       bs = roundup(left, unit_sz);
-      ldpp_dout(dpp, 20) <<__func__<< " Padding [" << (bs - left) << "] bytes" << dendl;
+      ldpp_dout(dpp, 20) <<__func__<< " left ="<< left << ",bs=" << bs << ", Padding [" << (bs - left) << "] bytes" << dendl;
       data.append_zero(bs - left);
       p = data.c_str();
     }
@@ -2004,6 +2068,7 @@ int MotrObject::write_mobj(const DoutPrefixProvider *dpp, bufferlist&& in_buffer
     ext.iv_vec.v_count[0] = bs;
     attr.ov_vec.v_count[0] = 0;
 
+    ldpp_dout(dpp, 20) <<__func__<< "Write buffer bytes=[" << bs << "], at offset=[" << offset << "]" << dendl;
     op = nullptr;
     rc = m0_obj_op(this->mobj, M0_OC_WRITE, &ext, &buf, &attr, 0, 0, &op);
     if (rc != 0)
@@ -2021,6 +2086,9 @@ out:
   m0_indexvec_free(&ext);
   m0_bufvec_free(&attr);
   m0_bufvec_free2(&buf);
+  // Reset io_ctxt state
+  io_ctxt.start_offset = 0;
+  io_ctxt.total_bufer_sz = 0;
   return rc;
 }
 
@@ -2614,7 +2682,9 @@ int MotrAtomicWriter::complete(size_t accounted_size, const std::string& etag,
   ent.meta.owner = owner.to_str();
   ent.meta.owner_display_name = obj.get_bucket()->get_owner()->get_display_name();
   RGWBucketInfo &info = obj.get_bucket()->get_info();
-  if (info.versioning_enabled())
+
+  // Set version and current flag in case of both versioning enabled and suspended case.
+  if (info.versioned())
     ent.flags = rgw_bucket_dir_entry::FLAG_VER | rgw_bucket_dir_entry::FLAG_CURRENT;
   ldpp_dout(dpp, 20) <<__func__<< ": key=" << obj.get_key().to_str()
                     << " etag: " << etag << " user_data=" << user_data << dendl;
@@ -2637,7 +2707,10 @@ int MotrAtomicWriter::complete(size_t accounted_size, const std::string& etag,
   obj.meta.encode(bl);
   ldpp_dout(dpp, 20) <<__func__<< ": lid=0x" << std::hex << obj.meta.layout_id
                                                            << dendl;
-  if (info.versioning_enabled()) {
+
+  // Update existing object version entries in a bucket,
+  // in case of both versioning enabled and suspended.
+  if (info.versioned()) {
     // get the list of all versioned objects with the same key and
     // unset their FLAG_CURRENT later, if do_idx_op_by_name() is successful.
     // Note: without distributed lock on the index - it is possible that 2
