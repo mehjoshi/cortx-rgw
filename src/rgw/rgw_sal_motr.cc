@@ -1321,10 +1321,12 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   }
 
   rgw_bucket_dir_entry ent;
-  MotrObject::Meta meta;
-  bufferlist& blr = bl;
-  auto iter = blr.cbegin();
+  auto iter = bl.cbegin();
   ent.decode(iter);
+  rgw::sal::Attrs attrs_dummy;
+  decode(attrs_dummy, iter);
+  MotrObject::Meta meta;
+  meta.decode(iter);
   ent.meta.mtime = ceph::real_clock::now();
   ent.encode(update_bl);
   encode(attrs, update_bl);
