@@ -1257,6 +1257,7 @@ MotrObject::~MotrObject() {
 
 int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, Attrs* setattrs, Attrs* delattrs, optional_yield y, rgw_obj* target_obj)
 {
+  // TODO : Set tags for multipart objects
   if (this->category == RGWObjCategory::MultiMeta)
     return 0;
 
@@ -1273,9 +1274,9 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
 
   // Get object's metadata (those stored in rgw_bucket_dir_entry).
   bufferlist bl, update_bl;
+  string bucket_index_iname = "motr.rgw.bucket.index." + bname;
   if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
-    // Cache misses.
-    string bucket_index_iname = "motr.rgw.bucket.index." + bname;
+    // Cache miss !
     int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
     if (rc < 0) {
       ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. " << dendl;
@@ -1291,10 +1292,9 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   ent.encode(update_bl);
   encode(attrs, update_bl);
 
-  string bucket_index_iname = "motr.rgw.bucket.index." + bname;
   int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, update_bl);
   if (rc < 0) {
-    ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. rc=" << rc << dendl;
+    ldpp_dout(dpp, 0) << "Failed to put object's entry to bucket index. rc=" << rc << dendl;
     return rc;
   }
   // Put into cache.
