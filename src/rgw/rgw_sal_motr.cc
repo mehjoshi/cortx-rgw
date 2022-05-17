@@ -1305,8 +1305,7 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
     bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
     key   = this->get_key().to_str();
   }
-  ldpp_dout(dpp, 20) << "MotrObject::set_obj_attrs(): "
-                    << bname << "/" << key << dendl;
+  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
 
   // Get object's metadata (those stored in rgw_bucket_dir_entry).
   bufferlist bl, update_bl;
@@ -1315,7 +1314,7 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
     // Cache miss !
     int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
     if (rc < 0) {
-      ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. rc=" << rc << dendl;
+      ldpp_dout(dpp, 0) <<__func__<< ": Failed to get object's entry from bucket index. rc=" << rc << dendl;
       return rc;
     }
   }
@@ -1323,8 +1322,10 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   rgw_bucket_dir_entry ent;
   auto iter = bl.cbegin();
   ent.decode(iter);
-  rgw::sal::Attrs attrs_dummy;
-  decode(attrs_dummy, iter);
+  // Decoding current_attrs before MotrObject::Meta because 
+  // encode and decode always have to be sequential. 
+  rgw::sal::Attrs current_attrs;
+  decode(current_attrs, iter);
   MotrObject::Meta meta;
   meta.decode(iter);
   ent.meta.mtime = ceph::real_clock::now();
@@ -1334,7 +1335,7 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
 
   int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, update_bl);
   if (rc < 0) {
-    ldpp_dout(dpp, 0) << "Failed to put object's entry to bucket index. rc=" << rc << dendl;
+    ldpp_dout(dpp, 0) <<__func__<< ": Failed to put object's entry to bucket index. rc=" << rc << dendl;
     return rc;
   }
   // Put into cache.
