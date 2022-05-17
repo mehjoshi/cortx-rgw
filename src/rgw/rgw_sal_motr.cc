@@ -1287,9 +1287,7 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   bufferlist& blr = bl;
   auto iter = blr.cbegin();
   ent.decode(iter);
-
   ent.meta.mtime = ceph::real_clock::now();
-
   ent.encode(update_bl);
   encode(attrs, update_bl);
 
