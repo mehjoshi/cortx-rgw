@@ -1302,6 +1302,7 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   string bname, key;
   int r = read_obj_attrs(dpp, bname, key, bl, target_obj);
   if (r < 0) {
+    ldpp_dout(dpp, 0) <<__func__<< ": Failed to read bucket name and key. rc=" << r << dendl;
     return r;
   }
 
@@ -1340,6 +1341,7 @@ int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPr
   string bname, key;
   int r = read_obj_attrs(dpp, bname, key, bl, target_obj);
   if (r < 0) {
+    ldpp_dout(dpp, 0) <<__func__<< ": Failed to read bucket name and key. rc=" << r << dendl;
     return r;
   }
 
