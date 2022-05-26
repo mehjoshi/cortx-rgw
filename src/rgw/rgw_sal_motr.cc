@@ -1301,7 +1301,6 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
   bufferlist bl, update_bl;
   string bname, key;
   int r = read_obj_attrs(dpp, bname, key, bl, target_obj);
-  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
   if (r < 0) {
     return r;
   }
@@ -1340,7 +1339,6 @@ int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPr
   bufferlist bl;
   string bname, key;
   int r = read_obj_attrs(dpp, bname, key, bl, target_obj);
-  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
   if (r < 0) {
     return r;
   }
@@ -1368,6 +1366,7 @@ void MotrObject::read_bucket_info(std::string& bname, std::string& key, rgw_obj*
 int MotrObject::read_obj_attrs(const DoutPrefixProvider* dpp, std::string& bname, std::string& key, bufferlist& bl, rgw_obj* target_obj)
 {
   read_bucket_info(bname, key, target_obj);
+  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
   // Get object's metadata (those stored in rgw_bucket_dir_entry).
   if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
     // Cache misses.
