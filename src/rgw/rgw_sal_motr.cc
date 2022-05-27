@@ -1294,13 +1294,17 @@ MotrObject::~MotrObject() {
 //    return read_op.prepare(dpp);
 //  }
 
-int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, Attrs* setattrs, Attrs* delattrs, optional_yield y, rgw_obj* target_obj)
+int MotrObject::fetch_obj_entry_and_key(const DoutPrefixProvider* dpp, rgw_bucket_dir_entry& ent, std::string& bname, std::string& key, rgw_obj* target_obj)
 {
-  // TODO : Set tags for multipart objects
-  if (this->category == RGWObjCategory::MultiMeta)
-    return 0;
+ 
+  ldpp_dout(dpp, 20) <<__func__<< ":" << "Entry" << dendl;
 
-  string bname, key;
+  int rc = this->get_bucket_dir_ent(dpp, ent);
+  if (rc < 0) {
+      ldpp_dout(dpp, 0) <<__func__<< ":" << "ERROR: failed to get object entry. rc=" << rc << dendl;
+      return rc;
+    }
+
   if (target_obj) {
     bname = get_bucket_name(target_obj->bucket.tenant, target_obj->bucket.name);
     key   = target_obj->key.to_str();
@@ -1308,38 +1312,49 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
     bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
     key   = this->get_key().to_str();
   }
-  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
+  ldpp_dout(dpp, 20) <<__func__<< ":" << bname << "/" << key << dendl;
 
-  // Get object's metadata (those stored in rgw_bucket_dir_entry).
-  bufferlist bl, update_bl;
-  string bucket_index_iname = "motr.rgw.bucket.index." + bname;
-  if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
-    // Cache miss !
-    int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
-    if (rc < 0) {
-      ldpp_dout(dpp, 0) <<__func__<< ": Failed to get object's entry from bucket index. rc=" << rc << dendl;
-      return rc;
-    }
+
+  // getting key for version cases
+  if(ent.key.instance == "null")
+  {
+    string pre_inst;
+    int rc1 = this->fetch_null_obj_reference(dpp, pre_inst);
+    if (rc1 < 0)
+      return rc1;
+    key= pre_inst;
+    ldpp_dout(dpp, 20) <<__func__<< ":" << "fetching null version key instance " << key << dendl;
+  } else {
+    key =  ent.key.name + "[" + ent.key.instance + "]";
+     ldpp_dout(dpp, 20) <<__func__<< ":" << "fetching null version key instance for latest object " << key << dendl;
   }
 
+   return 0;
+}
+int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, Attrs* setattrs, Attrs* delattrs, optional_yield y, rgw_obj* target_obj)
+{
+  ldpp_dout(dpp, 20) <<__func__<< ":" <<"Entry" << dendl;
+
+  // TODO : Set tags for multipart objects
+  if (this->category == RGWObjCategory::MultiMeta)
+    return 0;
+
   rgw_bucket_dir_entry ent;
-  auto iter = bl.cbegin();
-  ent.decode(iter);
-  // Decoding current_attrs before MotrObject::Meta because 
-  // encode and decode always have to be sequential. 
-  rgw::sal::Attrs current_attrs;
-  decode(current_attrs, iter);
-  MotrObject::Meta meta;
-  meta.decode(iter);
+  string bname, key;
+  fetch_obj_entry_and_key(dpp,ent,bname,key,target_obj);
+
+  bufferlist update_bl;
+  string bucket_index_iname = "motr.rgw.bucket.index." + bname;
+
   ent.meta.mtime = ceph::real_clock::now();
   ent.encode(update_bl);
   encode(attrs, update_bl);
   meta.encode(update_bl);
 
-  int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, update_bl);
-  if (rc < 0) {
-    ldpp_dout(dpp, 0) <<__func__<< ": Failed to put object's entry to bucket index. rc=" << rc << dendl;
-    return rc;
+  int rc2 = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_PUT, key, update_bl);
+  if (rc2 < 0) {
+    ldpp_dout(dpp, 0) <<__func__<< ":" << "Failed to put object's entry to bucket index. rc=" << rc2 << dendl;
+    return rc2;
   }
   // Put into cache.
   this->store->get_obj_meta_cache()->put(dpp, key, update_bl);
@@ -1349,28 +1364,21 @@ int MotrObject::set_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx,
 
 int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPrefixProvider* dpp, rgw_obj* target_obj)
 {
+  ldpp_dout(dpp, 20) <<__func__<< ":" << "Entry" << dendl;
   if (this->category == RGWObjCategory::MultiMeta)
     return 0;
 
+  rgw_bucket_dir_entry ent;
   string bname, key;
-  if (target_obj) {
-    bname = get_bucket_name(target_obj->bucket.tenant, target_obj->bucket.name);
-    key   = target_obj->key.to_str();
-  } else {
-    bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
-    key   = this->get_key().to_str();
-  }
-  ldpp_dout(dpp, 20) << "MotrObject::get_obj_attrs(): "
-                    << bname << "/" << key << dendl;
+  fetch_obj_entry_and_key(dpp,ent,bname,key,target_obj);
 
-  // Get object's metadata (those stored in rgw_bucket_dir_entry).
   bufferlist bl;
   if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
     // Cache misses.
     string bucket_index_iname = "motr.rgw.bucket.index." + bname;
     int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
     if (rc < 0) {
-      ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. " << dendl;
+      ldpp_dout(dpp, 0) <<__func__<< "Failed to get object's entry from bucket index. " << dendl;
       return rc;
     }
 
@@ -1378,7 +1386,6 @@ int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPr
     this->store->get_obj_meta_cache()->put(dpp, key, bl);
   }
 
-  rgw_bucket_dir_entry ent;
   bufferlist& blr = bl;
   auto iter = blr.cbegin();
   ent.decode(iter);

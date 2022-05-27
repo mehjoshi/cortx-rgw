@@ -631,6 +631,7 @@ class MotrObject : public Object {
     virtual int delete_obj_attrs(const DoutPrefixProvider* dpp, RGWObjectCtx* rctx, const char* attr_name, optional_yield y) override;
     virtual bool is_expired() override;
     virtual void gen_rand_obj_instance_name() override;
+    int fetch_obj_entry_and_key(const DoutPrefixProvider* dpp, rgw_bucket_dir_entry& ent, std::string& bname, std::string& key, rgw_obj* target_obj);
     virtual std::unique_ptr<Object> clone() override {
       return std::unique_ptr<Object>(new MotrObject(*this));
     }
