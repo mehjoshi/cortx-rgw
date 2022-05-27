@@ -1377,7 +1377,7 @@ int MotrObject::read_obj_attrs(const DoutPrefixProvider* dpp, std::string& bname
     string bucket_index_iname = "motr.rgw.bucket.index." + bname;
     int rc = this->store->do_idx_op_by_name(bucket_index_iname, M0_IC_GET, key, bl);
     if (rc < 0) {
-      ldpp_dout(dpp, 0) << "Failed to get object's entry from bucket index. rc=" << rc << dendl;
+      ldpp_dout(dpp, 0) << __func__ << ": failed to get object's entry from bucket index. rc = " << rc << dendl;
       return rc;
     }
 
