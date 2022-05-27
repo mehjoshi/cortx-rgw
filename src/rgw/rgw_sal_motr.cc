@@ -1363,12 +1363,12 @@ void MotrObject::read_bucket_info(std::string& bname, std::string& key, rgw_obj*
     bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
     key   = this->get_key().to_str();
   }
+  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
 }
 
 int MotrObject::read_obj_attrs(const DoutPrefixProvider* dpp, std::string& bname, std::string& key, bufferlist& bl, rgw_obj* target_obj)
 {
   read_bucket_info(bname, key, target_obj);
-  ldpp_dout(dpp, 20) <<__func__<< ": " << bname << "/" << key << dendl;
   // Get object's metadata (those stored in rgw_bucket_dir_entry).
   if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
     // Cache misses.
