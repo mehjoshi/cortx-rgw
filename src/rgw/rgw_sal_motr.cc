@@ -1354,7 +1354,7 @@ int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPr
   return 0;
 }
 
-void MotrObject::read_bucket_info(std::string& bname, std::string& key, rgw_obj* target_obj)
+void MotrObject::read_bucket_info(const DoutPrefixProvider* dpp, std::string& bname, std::string& key, rgw_obj* target_obj)
 {
   if (target_obj) {
     bname = get_bucket_name(target_obj->bucket.tenant, target_obj->bucket.name);
@@ -1368,7 +1368,7 @@ void MotrObject::read_bucket_info(std::string& bname, std::string& key, rgw_obj*
 
 int MotrObject::read_obj_attrs(const DoutPrefixProvider* dpp, std::string& bname, std::string& key, bufferlist& bl, rgw_obj* target_obj)
 {
-  read_bucket_info(bname, key, target_obj);
+  read_bucket_info(dpp, bname, key, target_obj);
   // Get object's metadata (those stored in rgw_bucket_dir_entry).
   if (this->store->get_obj_meta_cache()->get(dpp, key, bl)) {
     // Cache misses.
