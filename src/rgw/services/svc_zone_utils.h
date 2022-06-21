@@ -5,13 +5,15 @@
 
 #include "rgw/rgw_service.h"
 
-
 class RGWSI_RADOS;
 class RGWSI_Zone;
+
+struct MOTRServices_Def;
 
 class RGWSI_ZoneUtils : public RGWServiceInstance
 {
   friend struct RGWServices_Def;
+  friend struct MOTRServices_Def;
 
   RGWSI_RADOS *rados_svc{nullptr};
   RGWSI_Zone *zone_svc{nullptr};

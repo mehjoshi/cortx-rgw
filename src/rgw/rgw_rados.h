@@ -307,6 +307,9 @@ class RGWGetUserHeader_CB;
 namespace rgw { namespace sal {
   class Store;
   class RadosStore;
+#ifdef WITH_RADOSGW_MOTR
+  class MotrStore;
+#endif
   class MPRadosSerializer;
   class LCRadosSerializer;
 } }

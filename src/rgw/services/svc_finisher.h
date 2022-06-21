@@ -8,9 +8,12 @@
 class Context;
 class Finisher;
 
+struct MOTRServices_Def;
+
 class RGWSI_Finisher : public RGWServiceInstance
 {
   friend struct RGWServices_Def;
+  friend struct MOTRServices_Def;
 public:
   class ShutdownCB;
 

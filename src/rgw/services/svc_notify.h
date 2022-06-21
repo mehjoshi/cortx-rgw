@@ -15,6 +15,7 @@ class RGWSI_Finisher;
 
 class RGWWatcher;
 class RGWSI_Notify_ShutdownCB;
+class MOTRServices_Def;
 struct RGWCacheNotifyInfo;
 
 class RGWSI_Notify : public RGWServiceInstance
@@ -22,6 +23,7 @@ class RGWSI_Notify : public RGWServiceInstance
   friend class RGWWatcher;
   friend class RGWSI_Notify_ShutdownCB;
   friend class RGWServices_Def;
+  friend class MOTRServices_Def;
 
 public:
   class CB;

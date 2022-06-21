@@ -33,6 +33,8 @@ extern "C" {
 #include "rgw_multi.h"
 #include "rgw_putobj_processor.h"
 
+#include "services/motr_service.h"
+
 namespace rgw::sal {
 
 class MotrStore;
@@ -43,6 +45,7 @@ class MotrStore;
 #define RGW_MOTR_BUCKET_HD_IDX_NAME   "motr.rgw.bucket.headers"
 #define RGW_IAM_MOTR_ACCESS_KEY       "motr.rgw.accesskeys"
 #define RGW_IAM_MOTR_EMAIL_KEY        "motr.rgw.emails"
+#define RGW_MOTR_REALM_NAME           "motr.rgw.realms"
 
 //#define RGW_MOTR_BUCKET_ACL_IDX_NAME  "motr.rgw.bucket.acls"
 
@@ -965,6 +968,7 @@ class MotrStore : public Store {
     MotrMetaCache* obj_meta_cache;
     MotrMetaCache* user_cache;
     MotrMetaCache* bucket_inst_cache;
+    MOTRServices motr_svc;
 
   public:
     CephContext *cctx;
@@ -983,6 +987,10 @@ class MotrStore : public Store {
 
     virtual const char* get_name() const override {
       return "motr";
+    }
+
+    virtual MOTRServices* svc() {
+      return &motr_svc;
     }
 
     virtual int list_users(const DoutPrefixProvider* dpp, const std::string& metadata_key,

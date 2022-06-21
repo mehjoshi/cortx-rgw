@@ -4389,9 +4389,11 @@ int main(int argc, const char **argv)
   StoreDestructor store_destructor(static_cast<rgw::sal::RadosStore*>(store));
 
   if (raw_storage_op) {
-    try_to_resolve_local_entities(realm_id, realm_name,
-                                  zonegroup_id, zonegroup_name,
-                                  zone_id, zone_name);
+    // Commenting out because it deals with zone and we are trying out realm.
+    // Need to uncomment in official code 
+    // try_to_resolve_local_entities(realm_id, realm_name,
+    //                               zonegroup_id, zonegroup_name,
+    //                               zone_id, zone_name);
 
 
     switch (opt_cmd) {

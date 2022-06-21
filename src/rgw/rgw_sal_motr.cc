@@ -118,7 +118,8 @@ static std::string motr_global_indices[] = {
   RGW_MOTR_BUCKET_INST_IDX_NAME,
   RGW_MOTR_BUCKET_HD_IDX_NAME,
   RGW_IAM_MOTR_ACCESS_KEY,
-  RGW_IAM_MOTR_EMAIL_KEY
+  RGW_IAM_MOTR_EMAIL_KEY,
+  RGW_MOTR_REALM_NAME
 };
 
 // version-id(31 byte = base62 timstamp(8-byte) + UUID(23 byte)
@@ -5595,6 +5596,12 @@ void *newMotrStore(CephContext *cct)
       goto out;
     }
 
+    int ret = store->svc()->init_svc(true);
+    if (ret < 0) {
+      ldout(cct, 0) << "ERROR: failed to init services" << dendl;
+      delete store; store = nullptr;
+      return store;
+    }
   }
 
 out:

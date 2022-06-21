@@ -23,10 +23,12 @@ class RGWBucketSyncPolicyHandler;
 class RGWRESTConn;
 
 struct rgw_sync_policy_info;
+struct MOTRServices_Def;
 
 class RGWSI_Zone : public RGWServiceInstance
 {
   friend struct RGWServices_Def;
+  friend struct MOTRServices_Def;
 
   RGWSI_SysObj *sysobj_svc{nullptr};
   RGWSI_RADOS *rados_svc{nullptr};
