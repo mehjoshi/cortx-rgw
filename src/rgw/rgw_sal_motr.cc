@@ -181,7 +181,7 @@ int static update_bucket_stats(const DoutPrefixProvider *dpp, MotrStore *store,
                                uint64_t size, uint64_t actual_size,
                                uint64_t num_objects = 1, bool add_stats = true) {
   uint64_t multiplier = add_stats ? 1 : -1;
-  bufferlist bl;
+  bufferlist bl, update_bl;
   std::string user_stats_iname = "motr.rgw.user.stats." + owner;
   rgw_bucket_dir_header bkt_header;
   int rc = store->do_idx_op_by_name(user_stats_iname,
@@ -199,9 +199,8 @@ int static update_bucket_stats(const DoutPrefixProvider *dpp, MotrStore *store,
   bkt_stat.total_size += multiplier * size;
   bkt_stat.actual_size += multiplier * actual_size;
 
-  bl.clear();
-  bkt_header.encode(bl);
-  rc = store->do_idx_op_by_name(user_stats_iname, M0_IC_PUT, bucket_name, bl);
+  bkt_header.encode(update_bl);
+  rc = store->do_idx_op_by_name(user_stats_iname, M0_IC_PUT, bucket_name, update_bl);
   return rc;
 }
 
