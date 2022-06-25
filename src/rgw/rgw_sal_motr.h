@@ -360,7 +360,7 @@ class MotrBucket : public Bucket {
     virtual int set_acl(const DoutPrefixProvider *dpp, RGWAccessControlPolicy& acl, optional_yield y) override;
     virtual int load_bucket(const DoutPrefixProvider *dpp, optional_yield y, bool get_stats = false) override;
     int link_user(const DoutPrefixProvider* dpp, User* new_user, optional_yield y);
-    int unlink_user(const DoutPrefixProvider* dpp, User* new_user, optional_yield y);
+    int unlink_user(const DoutPrefixProvider* dpp, const rgw_user &bucket_owner, optional_yield y);
     int create_bucket_index();
     int create_multipart_indices();
     virtual int read_stats(const DoutPrefixProvider *dpp, int shard_id,
@@ -502,6 +502,29 @@ struct AccumulateIOCtxt{
   uint64_t total_bufer_sz = 0;
 };
 
+class MotrCopyObj_Filter : public RGWGetDataCB {
+public:
+  virtual int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) override { return 0; }
+  MotrCopyObj_Filter() {}
+  virtual ~MotrCopyObj_Filter() override {}
+};
+
+class MotrCopyObj_CB : public MotrCopyObj_Filter
+{
+  const DoutPrefixProvider* m_dpp;
+  std::shared_ptr<rgw::sal::Writer> m_dst_writer;
+  off_t write_offset;
+
+public:
+  explicit MotrCopyObj_CB(const DoutPrefixProvider* dpp, 
+                         std::shared_ptr<rgw::sal::Writer> dst_writer) : 
+                         m_dpp(dpp),
+                         m_dst_writer(dst_writer),
+                         write_offset(0) {}
+  virtual ~MotrCopyObj_CB() override {}
+  int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) override;
+};
+
 class MotrObject : public Object {
   private:
     MotrStore *store;
@@ -585,6 +608,7 @@ class MotrObject : public Object {
         MotrDeleteOp(MotrObject* _source, RGWObjectCtx* _rctx);
 
         virtual int delete_obj(const DoutPrefixProvider* dpp, optional_yield y) override;
+        int create_delete_marker(const DoutPrefixProvider* dpp, rgw_bucket_dir_entry& ent);
     };
 
     MotrObject() = default;
@@ -604,6 +628,21 @@ class MotrObject : public Object {
         bool prevent_versioning = false) override;
     virtual int delete_obj_aio(const DoutPrefixProvider* dpp, RGWObjState* astate, Completions* aio,
         bool keep_index_consistent, optional_yield y) override;
+    int copy_object_same_zone(RGWObjectCtx& obj_ctx, User* user,
+        req_info* info, const rgw_zone_id& source_zone,
+        rgw::sal::Object* dest_object, rgw::sal::Bucket* dest_bucket,
+        rgw::sal::Bucket* src_bucket,
+        const rgw_placement_rule& dest_placement,
+        ceph::real_time* src_mtime, ceph::real_time* mtime,
+        const ceph::real_time* mod_ptr, const ceph::real_time* unmod_ptr,
+        bool high_precision_time,
+        const char* if_match, const char* if_nomatch,
+        AttrsMod attrs_mod, bool copy_if_newer, Attrs& attrs,
+        RGWObjCategory category, uint64_t olh_epoch,
+        boost::optional<ceph::real_time> delete_at,
+        std::string* version_id, std::string* tag, std::string* etag,
+        void (*progress_cb)(off_t, void *), void* progress_data,
+        const DoutPrefixProvider* dpp, optional_yield y);
     virtual int copy_object(RGWObjectCtx& obj_ctx, User* user,
         req_info* info, const rgw_zone_id& source_zone,
         rgw::sal::Object* dest_object, rgw::sal::Bucket* dest_bucket,
@@ -681,8 +720,9 @@ class MotrObject : public Object {
     int delete_mobj(const DoutPrefixProvider *dpp);
     void close_mobj();
     int write_mobj(const DoutPrefixProvider *dpp, bufferlist&& data, uint64_t offset);
-    int read_mobj(const DoutPrefixProvider* dpp, int64_t off, int64_t end, RGWGetDataCB* cb);
-    unsigned get_optimal_bs(unsigned len);
+    int read_mobj(const DoutPrefixProvider* dpp, int64_t start, int64_t end, RGWGetDataCB* cb);
+    unsigned get_optimal_bs(unsigned len, bool last=false);
+    unsigned get_unit_sz();
 
     int get_part_objs(const DoutPrefixProvider *dpp,
                       std::map<int, std::unique_ptr<MotrObject>>& part_objs);
@@ -691,13 +731,16 @@ class MotrObject : public Object {
     int read_multipart_obj(const DoutPrefixProvider* dpp,
                            int64_t off, int64_t end, RGWGetDataCB* cb,
                            std::map<int, std::unique_ptr<MotrObject>>& part_objs);
-    int delete_part_objs(const DoutPrefixProvider* dpp);
+    int delete_part_objs(const DoutPrefixProvider* dpp, uint64_t* size_rounded);
     void set_category(RGWObjCategory _category) {category = _category;}
     int get_bucket_dir_ent(const DoutPrefixProvider *dpp, rgw_bucket_dir_entry& ent);
-    int fetch_null_obj(const DoutPrefixProvider *dpp, bufferlist& bl);
-    int fetch_null_obj_reference(const DoutPrefixProvider *dpp, std::string& prev_null_obj_key);
-    int update_null_reference(const DoutPrefixProvider *dpp, rgw_bucket_dir_entry& ent);
+    int fetch_latest_obj(const DoutPrefixProvider *dpp, bufferlist& bl);
     int update_version_entries(const DoutPrefixProvider *dpp, bool set_is_latest=false);
+    int fetch_null_obj(const DoutPrefixProvider *dpp, std::string& key, bufferlist *bl=NULL);
+    int remove_null_obj(const DoutPrefixProvider *dpp);
+    int remove_mobj_and_index_entry(const DoutPrefixProvider* dpp, rgw_bucket_dir_entry& ent,
+                                    std::string delete_key, std::string bucket_index_iname,
+                                    std::string bucket_name);
     uint64_t get_processed_bytes() { return processed_bytes; }
 };
 
@@ -747,7 +790,7 @@ class MotrAtomicWriter : public Writer {
   // Process a bufferlist
   virtual int process(bufferlist&& data, uint64_t offset) override;
 
-  int write();
+  int write(bool last=false);
 
   // complete the operation and make its result visible to clients
   virtual int complete(size_t accounted_size, const std::string& etag,
@@ -854,6 +897,7 @@ public:
 
   virtual uint32_t get_num() { return info.num; }
   virtual uint64_t get_size() { return info.accounted_size; }
+  virtual uint64_t get_size_rounded() { return info.size_rounded; }
   virtual const std::string& get_etag() { return info.etag; }
   virtual ceph::real_time& get_mtime() { return info.modified; }
 
@@ -908,7 +952,7 @@ public:
 			  const rgw_placement_rule *ptail_placement_rule,
 			  uint64_t part_num,
 			  const std::string& part_num_str) override;
-  int delete_parts(const DoutPrefixProvider *dpp, std::string version_id="");
+  int delete_parts(const DoutPrefixProvider *dpp, std::string version_id="", uint64_t* size_rounded = nullptr);
 };
 
 class MotrStore : public Store {
