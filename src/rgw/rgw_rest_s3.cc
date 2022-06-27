@@ -515,25 +515,26 @@ void RGWGetObjTags_ObjStore_S3::send_response_data(bufferlist& bl)
   end_header(s, this, "application/xml");
   dump_start(s);
 
-  s->formatter->open_object_section_in_ns("Tagging", XMLNS_AWS_S3);
-  s->formatter->open_object_section("TagSet");
-  if (has_tags){
-    RGWObjTagSet_S3 tagset;
-    auto iter = bl.cbegin();
-    try {
-      tagset.decode(iter);
-    } catch (buffer::error& err) {
-      ldpp_dout(this,0) << "ERROR: caught buffer::error, couldn't decode TagSet" << dendl;
-      op_ret= -EIO;
-      return;
+  if (!op_ret){
+    s->formatter->open_object_section_in_ns("Tagging", XMLNS_AWS_S3);
+    s->formatter->open_object_section("TagSet");
+    if (has_tags){
+      RGWObjTagSet_S3 tagset;
+      auto iter = bl.cbegin();
+      try {
+        tagset.decode(iter);
+      } catch (buffer::error& err) {
+        ldpp_dout(this,0) << "ERROR: caught buffer::error, couldn't decode TagSet" << dendl;
+        op_ret= -EIO;
+        return;
+      }
+      tagset.dump_xml(s->formatter);
     }
-    tagset.dump_xml(s->formatter);
+    s->formatter->close_section();
+    s->formatter->close_section();
+    rgw_flush_formatter_and_reset(s, s->formatter);
   }
-  s->formatter->close_section();
-  s->formatter->close_section();
-  rgw_flush_formatter_and_reset(s, s->formatter);
 }
-
 
 int RGWPutObjTags_ObjStore_S3::get_params(optional_yield y)
 {
@@ -588,6 +589,9 @@ void RGWPutObjTags_ObjStore_S3::send_response()
 
 void RGWDeleteObjTags_ObjStore_S3::send_response()
 {
+  if (op_ret == 0){
+    op_ret = STATUS_NO_CONTENT;
+  }
   if (op_ret)
     set_req_state_err(s, op_ret);
   dump_errno(s);
