@@ -1058,7 +1058,7 @@ void RGWGetObjTags::execute(optional_yield y)
   if (op_ret == 0) {
     attrs = s->object->get_attrs();
     auto tags = attrs.find(RGW_ATTR_TAGS);
-    if(tags != attrs.end()){
+    if (tags != attrs.end()) {
       has_tags = true;
       tags_bl.append(tags->second);
     }

@@ -518,7 +518,7 @@ void RGWGetObjTags_ObjStore_S3::send_response_data(bufferlist& bl)
   if (!op_ret) {
     s->formatter->open_object_section_in_ns("Tagging", XMLNS_AWS_S3);
     s->formatter->open_object_section("TagSet");
-    if (has_tags){
+    if (has_tags) {
       RGWObjTagSet_S3 tagset;
       auto iter = bl.cbegin();
       try {
