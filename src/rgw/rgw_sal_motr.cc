@@ -1227,6 +1227,25 @@ std::unique_ptr<Object> MotrBucket::get_object(const rgw_obj_key& k)
   return std::make_unique<MotrObject>(this->store, k, this);
 }
 
+// List object versions in such a way that the null-version object is
+// positioned in the right place among the other versions ordered by mtime.
+// (AWS S3 spec says that the object versions should be ordered by mtime.)
+//
+// Note: all versioned objects have "key[instance]" format of the key in
+// motr index, and the instance hash is generated reverse-ordered by mtime
+// (see MotrObject::gen_rand_obj_instance_name()), so versions are ordered
+// as needed just as we fetch from them motr, but null-version objects do
+// not have any [instance] suffix key in their name, that's why we have to
+// position it correctly among the other object versions, that's why the
+// code is a bit tricky here.
+//
+// The basic algorithm is this: save null-version in null_ent and put it
+// to the result only if the next version is older than it. If marker is
+// provided (from which version to give the result), put null-version to
+// the result only if it's older than the marker. If the number of objects
+// is bigger than max and the result is_truncated, make sure we put the
+// correct next_marker, which can be the null-version too. If the marker
+// is the null-version, put it and only the older versions to the result.
 int MotrBucket::list(const DoutPrefixProvider *dpp, ListParams& params, int max, ListResults& results, optional_yield y)
 {
   int rc;
@@ -1250,19 +1269,19 @@ int MotrBucket::list(const DoutPrefixProvider *dpp, ListParams& params, int max,
   // Modify the marker based on its type
   keys[0] = params.prefix;
   if (!params.marker.empty()) {
-    keys[0] = params.marker.to_str();
+    keys[0] = params.marker.name;
     // Get the position of delimiter string
-    int delim_pos = keys[0].find(params.delim, params.prefix.length());
-    // If delimiter is present at the very end, append "\xff" to skip all
-    // the dir entries, else append " " to skip the maker key.
-    if (delim_pos == (int)(keys[0].length() - params.delim.length()))
-      keys[0].append("\xff");
-    else
-      keys[0].append(" ");
+    if (params.delim != "") {
+      int delim_pos = keys[0].find(params.delim, params.prefix.length());
+      // If delimiter is present at the very end, append "\xff" to skip all
+      // the dir entries.
+      if (delim_pos == (int)(keys[0].length() - params.delim.length()))
+        keys[0].append("\xff");
+    }
   }
 
   results.is_truncated = false;
-  int keycount=0;
+  int keycount=0; // how many keys we've put to the results so far
   std::string next_key;
   while (keycount <= max) {
     if (!next_key.empty())
@@ -1288,11 +1307,22 @@ int MotrBucket::list(const DoutPrefixProvider *dpp, ListParams& params, int max,
         auto iter = vals[i].cbegin();
         ent.decode(iter);
         if (params.list_versions || ent.is_visible()) {
+          if (ent.key.name == params.marker.name &&
+              // filter out versions which go before marker.instance
+              ((!null_ent.key.empty() && params.marker.instance == "null" &&
+                 null_ent.meta.mtime < ent.meta.mtime) ||
+               (ent.key.instance != "" &&
+                ent.key.instance < params.marker.instance)))
+            continue;
+check_keycount:
           if (keycount >= max) {
-            // One extra key is successfully fetched.
-            results.next_marker = keys[i];
+            if (!null_ent.key.empty() &&
+                (null_ent.key.name != ent.key.name ||
+                 null_ent.meta.mtime > ent.meta.mtime))
+              results.next_marker = rgw_obj_key(ent.key.name, "null");
+            else
+              results.next_marker = rgw_obj_key(ent.key.name, ent.key.instance);
             results.is_truncated = true;
-            ldpp_dout(dpp, 20) <<__func__<< ": adding key "<< keys[i] <<" to next_marker"<<dendl;
             break;
           }
           // Put null-entry ordered by mtime.
@@ -1301,21 +1331,28 @@ int MotrBucket::list(const DoutPrefixProvider *dpp, ListParams& params, int max,
           if (!null_ent.key.empty() &&
               (null_ent.key.name != ent.key.name ||
                null_ent.meta.mtime > ent.meta.mtime)) {
-            results.objs.emplace_back(std::move(null_ent));
-            null_ent.key = {};
+            if (params.marker.instance != "" &&
+                ent.key.instance == params.marker.instance)
+              null_ent.key = {}; // filtered out by the marker
+            else {
+              results.objs.emplace_back(std::move(null_ent));
+              keycount++;
+              goto check_keycount;
+            }
           }
           if (ent.key.instance == "")
             null_ent = std::move(ent);
           else {
             results.objs.emplace_back(std::move(ent));
+            keycount++;
           }
-          keycount++;
         }
       }
     }
-    if (rc == 0 || rc < batch_size || results.is_truncated) {
+
+    if (rc == 0 || rc < batch_size || results.is_truncated)
       break;
-    }
+
     next_key = keys[rc-1]; // next marker key
     keys.clear();
     vals.clear();
@@ -1323,8 +1360,14 @@ int MotrBucket::list(const DoutPrefixProvider *dpp, ListParams& params, int max,
     vals.resize(batch_size);
   }
 
-  if (!null_ent.key.empty())
-    results.objs.emplace_back(std::move(null_ent));
+  if (!null_ent.key.empty() && !results.is_truncated) {
+    if (keycount < max)
+      results.objs.emplace_back(std::move(null_ent));
+    else { // there was no more records in the bucket
+      results.next_marker = rgw_obj_key(null_ent.key.name, "null");
+      results.is_truncated = true;
+    }
+  }
 
   return 0;
 }
@@ -2132,6 +2175,7 @@ int MotrObject::delete_obj_aio(const DoutPrefixProvider* dpp, RGWObjState* astat
 
 int MotrCopyObj_CB::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len)
 {
+  progress_cb progress_CB = this->get_progress_cb();
   int rc = 0;
   ldpp_dout(m_dpp, 20) << "Offset=" << bl_ofs << " Length = "
                        << " Write Offset=" << write_offset << bl_len << dendl;
@@ -2149,6 +2193,9 @@ int MotrCopyObj_CB::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len)
                           write_offset << "failed rc=" << rc << dendl;
     }
     write_offset += bl_len;
+    if(progress_CB){
+      progress_CB(write_offset, this->get_progress_data());
+    }
     return rc;
   }
 
@@ -2205,6 +2252,10 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
   ldpp_dout(dpp, 20) << "Src Object Name : " << this->get_key().get_oid() << dendl;
   ldpp_dout(dpp, 20) << "Dest Object Name : " << dest_object->get_key().get_oid() << dendl;
 
+  //similar src and dest object name is not supported as of now
+  if(this->get_obj() == dest_object->get_obj())
+    return -ERR_NOT_IMPLEMENTED;
+
   std::unique_ptr<rgw::sal::Object::ReadOp> read_op = this->get_read_op(&obj_ctx);
 
   // prepare read op
@@ -2250,6 +2301,9 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
     ldpp_dout(dpp, 20) << "ERROR: read op range_to_ofs failed rc=" << rc << dendl;
     return rc;
   }
+
+  //setting the values of progress_cb and progress_data in MotrCopyObj_Filter class 
+  filter->set_progress_callback(progress_cb, progress_data);
 
   // read::iterate -> handle_data() -> write::process
   rc = read_op->iterate(dpp, cur_ofs, cur_end, filter, y);
