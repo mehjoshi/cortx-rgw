@@ -515,7 +515,7 @@ void RGWGetObjTags_ObjStore_S3::send_response_data(bufferlist& bl)
   end_header(s, this, "application/xml");
   dump_start(s);
 
-  if (!op_ret){
+  if (!op_ret) {
     s->formatter->open_object_section_in_ns("Tagging", XMLNS_AWS_S3);
     s->formatter->open_object_section("TagSet");
     if (has_tags){
@@ -535,6 +535,7 @@ void RGWGetObjTags_ObjStore_S3::send_response_data(bufferlist& bl)
     rgw_flush_formatter_and_reset(s, s->formatter);
   }
 }
+
 
 int RGWPutObjTags_ObjStore_S3::get_params(optional_yield y)
 {
@@ -589,7 +590,7 @@ void RGWPutObjTags_ObjStore_S3::send_response()
 
 void RGWDeleteObjTags_ObjStore_S3::send_response()
 {
-  if (op_ret == 0){
+  if (op_ret == 0) {
     op_ret = STATUS_NO_CONTENT;
   }
   if (op_ret)

@@ -1055,7 +1055,7 @@ void RGWGetObjTags::execute(optional_yield y)
 
   op_ret = s->object->get_obj_attrs(s->obj_ctx, y, this);
 
-  if (op_ret == 0){
+  if (op_ret == 0) {
     attrs = s->object->get_attrs();
     auto tags = attrs.find(RGW_ATTR_TAGS);
     if(tags != attrs.end()){
