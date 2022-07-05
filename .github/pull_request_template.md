@@ -40,6 +40,8 @@
   - [ ] Includes [integration test(s)](https://docs.ceph.com/en/latest/dev/developer_guide/testing_integration_tests/)
   - [ ] Includes bug reproducer
   - [ ] No tests
+  - [ ] This PR does not contain changes to the interaction with motr (i.e. it does not affect data path nor the storing, accessing, or organization of motr index entries)
+  - [ ] If not possible to do the above, send an email to 'motr-rgw@seagate.com' saying that a new PR (with link) has been created that requires motr review
 
 <details>
 <summary>Show available Jenkins commands</summary>
