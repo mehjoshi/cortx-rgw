@@ -3755,7 +3755,7 @@ int MotrMultipartUpload::delete_parts(const DoutPrefixProvider *dpp, std::string
   if (get_upload_id().length()) {
     // Subtract size & object count if multipart is not completed.
     rc = update_bucket_stats(dpp, store,
-                             bucket->get_acl_owner().get_id().to_str(), tenant_bkt_name,
+                             bucket->get_owner()->get_id().to_str(), tenant_bkt_name,
                              total_size, total_size_rounded, 1, false);
     if (rc != 0) {
       ldpp_dout(dpp, 20) <<__func__<< ": Failed stats substraction for the "
@@ -4469,7 +4469,7 @@ int MotrMultipartWriter::complete(size_t accounted_size, const std::string& etag
    
   // update size without changing the object count
   rc = update_bucket_stats(dpp, store,
-                           head_obj->get_bucket()->get_acl_owner().get_id().to_str(),
+                           head_obj->get_bucket()->get_owner()->get_id().to_str(),
                            tenant_bkt_name,
                            actual_part_size - old_part_size,
                            size_rounded - old_part_size_rounded, 0, true);
