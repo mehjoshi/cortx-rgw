@@ -1049,6 +1049,7 @@ void RGWGetObjTags::pre_exec()
 
 void RGWGetObjTags::execute(optional_yield y)
 {
+    ldpp_dout(this, 0) << "shr::RGWGetObjTags::execute"  << dendl;
   rgw::sal::Attrs attrs;
 
   s->object->set_atomic(s->obj_ctx);
@@ -1085,6 +1086,7 @@ int RGWPutObjTags::verify_permission(optional_yield y)
 
 void RGWPutObjTags::execute(optional_yield y)
 {
+  ldpp_dout(this, 0) << "shr::RGWPutObjTags::execute" << dendl;
   op_ret = get_params(y);
   if (op_ret < 0)
     return;
@@ -5381,6 +5383,7 @@ static void copy_obj_progress_cb(off_t ofs, void *param)
 
 void RGWCopyObj::progress_cb(off_t ofs)
 {
+   ldpp_dout(this, 0) << "shr::  progress_cb" << dendl;
   if (!s->cct->_conf->rgw_copy_obj_progress)
     return;
 

@@ -1672,11 +1672,14 @@ int MotrObject::get_obj_attrs(RGWObjectCtx* rctx, optional_yield y, const DoutPr
 
 int MotrObject::modify_obj_attrs(RGWObjectCtx* rctx, const char* attr_name, bufferlist& attr_val, optional_yield y, const DoutPrefixProvider* dpp)
 {
+   ldpp_dout(dpp, 0) <<"shr :: modify_obj_attrs"<< dendl;
   rgw_obj target = get_obj();
   sal::Attrs set_attrs;
 
   set_atomic(rctx);
   set_attrs[attr_name] = attr_val;
+  for(auto ele : set_attrs)
+  ldpp_dout(dpp, 0) <<"shr :: attr_name::"<< ele.first <<"  attr_val::" << ele.second << dendl;
   return set_obj_attrs(dpp, rctx, &set_attrs, nullptr, y, &target);
 }
 
@@ -2163,6 +2166,7 @@ int MotrObject::delete_obj_aio(const DoutPrefixProvider* dpp, RGWObjState* astat
 
 int MotrCopyObj_CB::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len)
 {
+  ldpp_dout(m_dpp, 0) << "shr::  handle_data" << dendl;
   progress_cb progress_CB = this->get_progress_cb();
   int rc = 0;
   ldpp_dout(m_dpp, 20) << "Offset=" << bl_ofs << " Length = "
@@ -2182,6 +2186,7 @@ int MotrCopyObj_CB::handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len)
     }
     write_offset += bl_len;
     if(progress_CB){
+      ldpp_dout(m_dpp, 0) << "shr::  <<if(progress_CB)" << dendl;
       progress_CB(write_offset, this->get_progress_data());
     }
     return rc;
