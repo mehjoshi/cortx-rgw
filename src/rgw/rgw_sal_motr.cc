@@ -2221,7 +2221,7 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
     const char* if_nomatch,
     AttrsMod attrs_mod,
     bool copy_if_newer,
-    Attrs& attrs,
+    Attrs& new_attrs,
     RGWObjCategory category,
     uint64_t olh_epoch,
     boost::optional<ceph::real_time> delete_at,
@@ -2317,6 +2317,30 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
 
   if(etag){
     *etag = etag_str;
+  }
+
+    //Set object tags based on tagging-directive
+  struct req_state* s = static_cast<req_state*>(obj_ctx.get_private());    
+  auto tmp_md_d = s->info.env->get("HTTP_X_AMZ_TAGGING_DIRECTIVE");
+
+  if (tmp_md_d) {
+    if (strcasecmp(tmp_md_d, "COPY") == 0) {
+      bufferlist tags_bl;
+      rc = read_op->get_attr(dpp, RGW_ATTR_TAGS, tags_bl, y);
+      if (rc < 0) {
+        ldpp_dout(dpp, 20) << "ERROR: read op for object tags failed rc=" << rc << dendl;
+        return rc;
+      }
+      ldpp_dout(dpp, 20) << "**************** tags_bl " << tags_bl.c_str() << dendl;
+      attrs[RGW_ATTR_TAGS] = tags_bl;
+    } else if (strcasecmp(tmp_md_d, "REPLACE") == 0) {
+      bufferlist bl;
+      auto tags = new_attrs.find(RGW_ATTR_TAGS);
+      if (tags != new_attrs.end()) {
+        encode(new_attrs[RGW_ATTR_TAGS], bl);
+        attrs[RGW_ATTR_TAGS] = new_attrs[RGW_ATTR_TAGS];
+      }
+    } 
   }
 
   real_time del_time;
