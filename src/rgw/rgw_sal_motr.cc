@@ -41,7 +41,6 @@ extern "C" {
 #include "rgw_bucket.h"
 #include "rgw_quota.h"
 #include "motr/addb/rgw_addb.h"
-#include "rgw_tag_s3.h"
 
 #define dout_subsys ceph_subsys_rgw
 
