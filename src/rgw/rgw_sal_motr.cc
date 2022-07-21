@@ -41,6 +41,7 @@ extern "C" {
 #include "rgw_bucket.h"
 #include "rgw_quota.h"
 #include "motr/addb/rgw_addb.h"
+#include "rgw_tag_s3.h"
 
 #define dout_subsys ceph_subsys_rgw
 
@@ -135,6 +136,25 @@ static uint64_t roundup(uint64_t x, uint64_t by)
 static uint64_t rounddown(uint64_t x, uint64_t by)
 {
   return x / by * by;
+}
+
+int parse_tags(const DoutPrefixProvider* dpp, bufferlist& tags_bl, struct req_state* s)
+{
+  std::unique_ptr<RGWObjTags> obj_tags;
+  if (s->info.env->exists("HTTP_X_AMZ_TAGGING")) {
+    auto tag_str = s->info.env->get("HTTP_X_AMZ_TAGGING");
+    obj_tags = std::make_unique<RGWObjTags>();
+    int ret = obj_tags->set_from_string(tag_str);
+    if (ret < 0) {
+      ldpp_dout(dpp, 0) <<__func__<< "setting obj tags failed with rc=" << ret << dendl;
+      if (ret == -ERR_INVALID_TAG) {
+        ret = -EINVAL; //s3 returns only -EINVAL for PUT requests
+      }
+      return ret;
+    }
+    obj_tags->encode(tags_bl);
+  }
+  return 0;
 }
 
 std::string base62_encode(uint64_t value, size_t pad)
@@ -2309,7 +2329,7 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
   bufferlist bl;
   rc = read_op->get_attr(dpp, RGW_ATTR_ETAG, bl, y);
   if (rc < 0){
-    ldpp_dout(dpp, 20) << "ERROR: read op iterate failed rc=" << rc << dendl;
+    ldpp_dout(dpp, 20) <<__func__<< "ERROR: read op for etag failed rc=" << rc << dendl;
     return rc;
   }
   string etag_str;
@@ -2319,28 +2339,26 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
     *etag = etag_str;
   }
 
-    //Set object tags based on tagging-directive
-  struct req_state* s = static_cast<req_state*>(obj_ctx.get_private());    
-  auto tmp_md_d = s->info.env->get("HTTP_X_AMZ_TAGGING_DIRECTIVE");
+  //Set object tags based on tagging-directive
+  struct req_state* s = static_cast<req_state*>(obj_ctx.get_private());
+  auto tagging_dir = s->info.env->get("HTTP_X_AMZ_TAGGING_DIRECTIVE");
 
-  if (tmp_md_d) {
-    if (strcasecmp(tmp_md_d, "COPY") == 0) {
-      bufferlist tags_bl;
+  bufferlist tags_bl;
+  if (tagging_dir) {
+    if (strcasecmp(tagging_dir, "COPY") == 0) {
       rc = read_op->get_attr(dpp, RGW_ATTR_TAGS, tags_bl, y);
       if (rc < 0) {
-        ldpp_dout(dpp, 20) << "ERROR: read op for object tags failed rc=" << rc << dendl;
+        ldpp_dout(dpp, 20) <<__func__<< "ERROR: read op for object tags failed rc=" << rc << dendl;
         return rc;
       }
-      ldpp_dout(dpp, 20) << "**************** tags_bl " << tags_bl.c_str() << dendl;
-      attrs[RGW_ATTR_TAGS] = tags_bl;
-    } else if (strcasecmp(tmp_md_d, "REPLACE") == 0) {
-      bufferlist bl;
-      auto tags = new_attrs.find(RGW_ATTR_TAGS);
-      if (tags != new_attrs.end()) {
-        encode(new_attrs[RGW_ATTR_TAGS], bl);
-        attrs[RGW_ATTR_TAGS] = new_attrs[RGW_ATTR_TAGS];
+    } else if (strcasecmp(tagging_dir, "REPLACE") == 0) {
+      int r = parse_tags(dpp, tags_bl, s);
+      if (r < 0) {
+        ldpp_dout(dpp, 20) <<__func__<< "ERROR: Parsing object tags failed rc=" << rc << dendl;
+        return r;
       }
-    } 
+    }
+  attrs[RGW_ATTR_TAGS] = tags_bl;
   }
 
   real_time del_time;
@@ -3901,25 +3919,14 @@ int MotrMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y,
     ent.meta.mtime = ceph::real_clock::now();
     ent.meta.user_data.assign(mpbl.c_str(), mpbl.c_str() + mpbl.length());
     ent.encode(bl);
-    std::unique_ptr<RGWObjTags> obj_tags;
     req_state *s = (req_state *) obj_ctx->get_private();
-    /* handle object tagging */
-    // Verify tags exists and add to attrs
-    if (s->info.env->exists("HTTP_X_AMZ_TAGGING")){
-      auto tag_str = s->info.env->get("HTTP_X_AMZ_TAGGING");
-      obj_tags = std::make_unique<RGWObjTags>();
-      int ret = obj_tags->set_from_string(tag_str);
-      if (ret < 0){
-        ldpp_dout(dpp, 0) << "setting obj tags failed with rc=" << ret << dendl;
-        if (ret == -ERR_INVALID_TAG){
-          ret = -EINVAL; //s3 returns only -EINVAL for PUT requests
-        }
-        return ret;
-      }
-      bufferlist tags_bl;
-      obj_tags->encode(tags_bl);
-      attrs[RGW_ATTR_TAGS] = tags_bl;
+    bufferlist tags_bl;
+    int r = parse_tags(dpp, tags_bl, s);
+    if (r < 0) {
+      ldpp_dout(dpp, 20) <<__func__<< "ERROR: Parsing object tags failed rc=" << r << dendl;
+      return r;
     }
+    attrs[RGW_ATTR_TAGS] = tags_bl;
     encode(attrs, bl);
     // Insert an entry into bucket multipart index so it is not shown
     // when listing a bucket.
