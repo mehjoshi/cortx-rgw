@@ -2328,7 +2328,7 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
   bufferlist bl;
   rc = read_op->get_attr(dpp, RGW_ATTR_ETAG, bl, y);
   if (rc < 0){
-    ldpp_dout(dpp, 20) <<__func__<< "ERROR: read op for etag failed rc=" << rc << dendl;
+    ldpp_dout(dpp, 0) <<__func__<< "ERROR: read op for etag failed rc=" << rc << dendl;
     return rc;
   }
   string etag_str;
@@ -2340,20 +2340,21 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
 
   //Set object tags based on tagging-directive
   struct req_state* s = static_cast<req_state*>(obj_ctx.get_private());
-  auto tagging_dir = s->info.env->get("HTTP_X_AMZ_TAGGING_DIRECTIVE");
+  auto tagging_drctv = s->info.env->get("HTTP_X_AMZ_TAGGING_DIRECTIVE");
 
   bufferlist tags_bl;
-  if (tagging_dir) {
-    if (strcasecmp(tagging_dir, "COPY") == 0) {
+  if (tagging_drctv) {
+    if (strcasecmp(tagging_drctv, "COPY") == 0) {
       rc = read_op->get_attr(dpp, RGW_ATTR_TAGS, tags_bl, y);
       if (rc < 0) {
-        ldpp_dout(dpp, 20) <<__func__<< "ERROR: read op for object tags failed rc=" << rc << dendl;
+        ldpp_dout(dpp, 0) <<__func__<< "ERROR: read op for object tags failed rc=" << rc << dendl;
         return rc;
       }
-    } else if (strcasecmp(tagging_dir, "REPLACE") == 0) {
+    } else if (strcasecmp(tagging_drctv, "REPLACE") == 0) {
       int r = parse_tags(dpp, tags_bl, s);
+      ldpp_dout(dpp, 20) <<__func__<< "Parse tag values for object: " << dest_object->get_key().get_oid() << dendl;
       if (r < 0) {
-        ldpp_dout(dpp, 20) <<__func__<< "ERROR: Parsing object tags failed rc=" << rc << dendl;
+        ldpp_dout(dpp, 0) <<__func__<< "ERROR: Parsing object tags failed rc=" << rc << dendl;
         return r;
       }
     }
@@ -3920,9 +3921,10 @@ int MotrMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y,
     ent.encode(bl);
     req_state *s = (req_state *) obj_ctx->get_private();
     bufferlist tags_bl;
+    ldpp_dout(dpp, 20) <<__func__<< "Parse tag values for object: " << obj->get_key().to_str() << dendl;
     int r = parse_tags(dpp, tags_bl, s);
     if (r < 0) {
-      ldpp_dout(dpp, 20) <<__func__<< "ERROR: Parsing object tags failed rc=" << r << dendl;
+      ldpp_dout(dpp, 0) <<__func__<< "ERROR: Parsing object tags failed rc=" << r << dendl;
       return r;
     }
     attrs[RGW_ATTR_TAGS] = tags_bl;
