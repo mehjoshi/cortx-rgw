@@ -145,7 +145,7 @@ int parse_tags(const DoutPrefixProvider* dpp, bufferlist& tags_bl, struct req_st
     obj_tags = std::make_unique<RGWObjTags>();
     int ret = obj_tags->set_from_string(tag_str);
     if (ret < 0) {
-      ldpp_dout(dpp, 0) <<__func__<< "setting obj tags failed with rc=" << ret << dendl;
+      ldpp_dout(dpp, 0) <<__func__<< ": setting obj tags failed with rc=" << ret << dendl;
       if (ret == -ERR_INVALID_TAG) {
         ret = -EINVAL; //s3 returns only -EINVAL for PUT requests
       }
@@ -2328,7 +2328,7 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
   bufferlist bl;
   rc = read_op->get_attr(dpp, RGW_ATTR_ETAG, bl, y);
   if (rc < 0){
-    ldpp_dout(dpp, 0) <<__func__<< "ERROR: read op for etag failed rc=" << rc << dendl;
+    ldpp_dout(dpp, 0) <<__func__<< ": ERROR: read op for etag failed rc=" << rc << dendl;
     return rc;
   }
   string etag_str;
@@ -2347,14 +2347,14 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
     if (strcasecmp(tagging_drctv, "COPY") == 0) {
       rc = read_op->get_attr(dpp, RGW_ATTR_TAGS, tags_bl, y);
       if (rc < 0) {
-        ldpp_dout(dpp, 0) <<__func__<< "ERROR: read op for object tags failed rc=" << rc << dendl;
+        ldpp_dout(dpp, 0) <<__func__<< ": ERROR: read op for object tags failed rc=" << rc << dendl;
         return rc;
       }
     } else if (strcasecmp(tagging_drctv, "REPLACE") == 0) {
-      ldpp_dout(dpp, 20) <<__func__<< "Parse tag values for object: " << dest_object->get_key().get_oid() << dendl;
+      ldpp_dout(dpp, 20) <<__func__<< ": Parse tag values for object: " << dest_object->get_key().to_str() << dendl;
       int r = parse_tags(dpp, tags_bl, s);
       if (r < 0) {
-        ldpp_dout(dpp, 0) <<__func__<< "ERROR: Parsing object tags failed rc=" << rc << dendl;
+        ldpp_dout(dpp, 0) <<__func__<< ": ERROR: Parsing object tags failed rc=" << rc << dendl;
         return r;
       }
     }
@@ -3921,7 +3921,7 @@ int MotrMultipartUpload::init(const DoutPrefixProvider *dpp, optional_yield y,
     ent.encode(bl);
     req_state *s = (req_state *) obj_ctx->get_private();
     bufferlist tags_bl;
-    ldpp_dout(dpp, 20) <<__func__<< "Parse tag values for object: " << obj->get_key().to_str() << dendl;
+    ldpp_dout(dpp, 20) <<__func__<< ": Parse tag values for object: " << obj->get_key().to_str() << dendl;
     int r = parse_tags(dpp, tags_bl, s);
     if (r < 0) {
       ldpp_dout(dpp, 0) <<__func__<< "ERROR: Parsing object tags failed rc=" << r << dendl;
