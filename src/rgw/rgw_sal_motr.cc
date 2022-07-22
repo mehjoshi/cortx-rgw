@@ -2351,8 +2351,8 @@ int MotrObject::copy_object_same_zone(RGWObjectCtx& obj_ctx,
         return rc;
       }
     } else if (strcasecmp(tagging_drctv, "REPLACE") == 0) {
-      int r = parse_tags(dpp, tags_bl, s);
       ldpp_dout(dpp, 20) <<__func__<< "Parse tag values for object: " << dest_object->get_key().get_oid() << dendl;
+      int r = parse_tags(dpp, tags_bl, s);
       if (r < 0) {
         ldpp_dout(dpp, 0) <<__func__<< "ERROR: Parsing object tags failed rc=" << rc << dendl;
         return r;
