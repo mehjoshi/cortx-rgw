@@ -1610,7 +1610,9 @@ int MotrObject::fetch_obj_entry_and_key(const DoutPrefixProvider* dpp, rgw_bucke
   if (target_obj)
     bname = get_bucket_name(target_obj->bucket.tenant, target_obj->bucket.name);
   else
+    ldpp_dout(dpp, 0) <<__func__<< " Target_object not found generating bname..." << dendl;
     bname = get_bucket_name(this->get_bucket()->get_tenant(), this->get_bucket()->get_name());
+    ldpp_dout(dpp, 0) <<__func__<< " Bname generated." << bname << dendl;
 
   rgw_obj_key objkey(ent.key);
   key = objkey.name + '\a' + objkey.instance;
@@ -3142,7 +3144,8 @@ int MotrObject::get_bucket_dir_ent(const DoutPrefixProvider *dpp, rgw_bucket_dir
 
 out:
   if (rc == 0) {
-    decode(attrs, iter);
+    sal::Attrs dummy;
+    decode(dummy, iter);
     meta.decode(iter);
     ldpp_dout(dpp, 20) <<__func__<< ": key=" << obj_key
                        << " lid=0x" << std::hex << meta.layout_id << dendl;
