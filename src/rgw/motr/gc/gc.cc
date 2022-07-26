@@ -35,18 +35,19 @@ void *MotrGC::GCWorker::entry() {
 
 void MotrGC::initialize() {
   // fetch max gc indices from config
-  auto max_indices = std::min(cct->_conf->rgw_gc_max_objs,
-                              GC_MAX_SHARDS_PRIME);
-  ldpp_dout(this, 50) << __func__ << ": max_indices = " << max_indices << dendl;
-
+  max_indices = static_cast<int>(std::min(cct->_conf->rgw_gc_max_objs,
+                              GC_MAX_SHARDS_PRIME));
   index_names.reserve(max_indices);
-  for (int i = 0; i < max_indices; i++) {
-    // Append index name to the gc index list
-    index_names.push_back(gc_index_prefix + std::to_string(i));
-
-    // [To be Implemented] create index in motr dix
+  ldpp_dout(this, 50) << __func__ << ": max_indices = " << max_indices << dendl;
+  for(int ind_suf = 0; ind_suf < max_indices; ind_suf++){
+    std::string iname = gc_index_prefix + "." + std::to_string(ind_suf);
+    int rc = static_cast<rgw::sal::MotrStore*>(store)->create_motr_idx_by_name(iname);
+    if (rc < 0 && rc != -EEXIST){
+      ldout(cct, 0) << "ERROR: GC index creation failed with rc: " << rc << dendl;
+      break;
+    }
+    index_names.push_back(iname);
   }
-
 }
 
 void MotrGC::finalize() {

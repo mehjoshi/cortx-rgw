@@ -23,7 +23,7 @@
 #include <atomic>
 
 const int64_t GC_MAX_SHARDS_PRIME = 65521;
-static std::string gc_index_prefix = "gc.";
+static std::string gc_index_prefix = "motr.rgw.gc";
 static std::string gc_thread_prefix = "gc_thread_";
 
 class MotrGC : public DoutPrefixProvider {
@@ -57,6 +57,63 @@ class MotrGC : public DoutPrefixProvider {
   };
   std::vector<std::unique_ptr<MotrGC::GCWorker>> workers;
 
+  struct motr_gc_obj_info
+  {
+    std::string tag;               // gc obj unique identifier
+    std::string name;              // fully qualified object name
+    struct MotrObject::Meta mobj;  // motr obj
+    std::time_t time;              // deletion time
+    std::uint64_t size;            // size of obj
+    std::uint64_t size_actual;     // size of disk
+    bool is_multipart;             // flag to indicate if object is multipart
+    std::string multipart_iname;   // part index name
+
+    motr_gc_obj_info() {}
+    motr_gc_obj_info(std::string _tag, std::string _name, struct MotrObject::Meta _mobj, 
+      std::time_t _time, std::uint64_t _size, std::uint64_t _size_actual, 
+      bool _is_multipart, std::string _multipart_iname)
+      : tag(std::move(_tag)), name(std::move(_name)), mobj(std::move(_mobj)),
+      time(std::move(_time)), size(std::move(_size)), size_actual(std::move(_size_actual)),
+      is_multipart(std::move(_is_multipart)), multipart_iname(std::move(_multipart_iname)) {}
+
+    void encode(bufferlist &bl) const
+    {
+      ENCODE_START(2, 2, bl);
+      encode(tag, bl);
+      encode(name, bl);
+      encode(mobj.oid.u_hi, bl);
+      encode(mobj.oid.u_lo, bl);
+      encode(mobj.pver.f_container, bl);
+      encode(mobj.pver.f_key, bl);
+      encode(mobj.layout_id, bl);
+      encode(time, bl);
+      encode(size, bl);
+      encode(size_actual, bl);
+      encode(is_multipart, bl);
+      encode(multipart_iname, bl);
+      ENCODE_FINISH(bl);
+    }
+
+    void decode(bufferlist::const_iterator &bl)
+    {
+      DECODE_START_LEGACY_COMPAT_LEN_32(2, 2, 2, bl);
+      decode(tag, bl);
+      decode(name, bl);
+      decode(mobj.oid.u_hi, bl);
+      decode(mobj.oid.u_lo, bl);
+      decode(mobj.pver.f_container, bl);
+      decode(mobj.pver.f_key, bl);
+      decode(mobj.layout_id, bl);
+      decode(time, bl);
+      decode(size, bl);
+      decode(size_actual, bl);
+      decode(is_multipart, bl);
+      decode(multipart_iname, bl);
+      DECODE_FINISH(bl);
+    }
+  };
+  WRITE_CLASS_ENCODER(motr_gc_obj_info);
+  
   MotrGC(CephContext *_cct, rgw::sal::Store* _store)
     : cct(_cct), store(_store) {}
 
@@ -70,6 +127,8 @@ class MotrGC : public DoutPrefixProvider {
 
   void start_processor();
   void stop_processor();
+  void enqueue(const DoutPrefixProvider* dpp, std::string iname, struct motr_gc_obj_info obj);
+  void dequeue(const DoutPrefixProvider* dpp, std::string iname, struct motr_gc_obj_info obj);
 
   bool going_down();
 
